@@ -103,7 +103,7 @@ if st.session_state.get('authentication_status'):
     st.success(f"Welcome {st.session_state.get('name')}")
 
     st.set_page_config(page_title="S/R with RSI, MACD & Volume", layout="wide")
-    st.title("📈 Support & Resistance + RSI & MACD + Volume Confirmation + Trading Signals")
+    st.title("📈 Signalv14")
 
     refresh_count = st_autorefresh(interval=30_000, key="live_refresh")
     st.sidebar.write(f"🔄 Auto-refresh count: {refresh_count}")
