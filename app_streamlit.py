@@ -13,9 +13,16 @@ from firebase_admin import credentials, db
 import os
 
 # --------- Authentication ---------
+# Load base config from YAML (cookie settings, etc.)
 CONFIG_PATH = 'credentials.yaml'
 with open(CONFIG_PATH) as file:
     config = yaml.load(file, Loader=SafeLoader)
+
+# Load users from Firebase (overrides YAML users)
+firebase_users = load_all_users()
+if firebase_users:
+    config['credentials']['usernames'] = firebase_users
+
 
 import streamlit_authenticator as stauth
 
@@ -62,6 +69,18 @@ def load_user_watchlist(username, default=None):
 def save_user_watchlist(username, watchlist):
     ref = db.reference(f"watchlists/{username}")
     ref.set(watchlist)
+
+def load_all_users():
+    """Load all users from Firebase"""
+    ref = db.reference("credentials/usernames")
+    data = ref.get()
+    return data if data else {}
+
+def save_user_to_firebase(username, user_data):
+    """Save a single user to Firebase"""
+    ref = db.reference(f"credentials/usernames/{username}")
+    ref.set(user_data)
+
 
 # -------- Registration --------
 if not st.session_state.get('authentication_status'):
