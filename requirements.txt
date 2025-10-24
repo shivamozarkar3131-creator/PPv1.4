@@ -10,3 +10,8 @@ pydantic>=2.6.0
 streamlit-autorefresh
 requests
 plotly
+gspread
+google-auth
+streamlit
+streamlit-authenticator
+PyYAML
