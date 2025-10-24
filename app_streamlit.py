@@ -11,7 +11,6 @@ from yaml.loader import SafeLoader
 import firebase_admin
 from firebase_admin import credentials, db
 import os
-import json
 
 # --------- Authentication ---------
 CONFIG_PATH = 'credentials.yaml'
@@ -34,21 +33,20 @@ except Exception as e:
 
 # --------- Firebase Connection ---------
 def get_firebase_cred():
-    # Run locally? Use firebase-key.json file.
-    # On Streamlit Cloud, use secrets
+    import tempfile
+    import json as pyjson
+    key_path = None
     if "firebase_key" in st.secrets:
-        # Convert TOML secret string to dict&file
-        import tempfile
-        import json as pyjson
-        key_path = None
+        # st.secrets["firebase_key"] is a dict (not a string!)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as tf:
-            tf.write(st.secrets["firebase_key"])
+            tf.write(pyjson.dumps(dict(st.secrets["firebase_key"])))
             key_path = tf.name
         return key_path
     else:
         return "firebase-key.json"
 
-FIREBASE_URL = st.secrets.get("firebase_url", "YOUR_FIREBASE_DB_URL_HERE")
+# Use firebase_url from TOML (cloud) or set here (local)
+FIREBASE_URL = st.secrets.firebase_key.firebase_url if "firebase_key" in st.secrets else "YOUR_FIREBASE_DB_URL_HERE"
 cred_path = get_firebase_cred()
 if not firebase_admin._apps:
     cred = credentials.Certificate(cred_path)
