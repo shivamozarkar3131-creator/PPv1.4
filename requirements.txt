@@ -15,3 +15,5 @@ google-auth
 streamlit
 streamlit-authenticator
 PyYAML
+firebase-admin
+
