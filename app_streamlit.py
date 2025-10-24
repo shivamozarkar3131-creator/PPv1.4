@@ -55,6 +55,17 @@ def save_user_watchlist(username, watchlist):
     ref = db.reference(f"watchlists/{username}")
     ref.set(watchlist)
 
+# Firebase functions for user Telegram settings
+def load_user_telegram(username):
+    """Load user's Telegram chat_id from Firebase"""
+    ref = db.reference(f"user_settings/{username}/telegram_chat_id")
+    return ref.get()
+
+def save_user_telegram(username, chat_id):
+    """Save user's Telegram chat_id to Firebase"""
+    ref = db.reference(f"user_settings/{username}/telegram_chat_id")
+    ref.set(chat_id)
+
 # --------- Load Config (Hybrid: YAML + Firebase) ---------
 CONFIG_PATH = 'credentials.yaml'
 with open(CONFIG_PATH) as file:
@@ -103,7 +114,7 @@ if st.session_state.get('authentication_status'):
     st.success(f"Welcome {st.session_state.get('name')}")
 
     st.set_page_config(page_title="S/R with RSI, MACD & Volume", layout="wide")
-    st.title("📈 Signalv14")
+    st.title("📈 Support & Resistance + RSI & MACD + Volume Confirmation + Trading Signals")
 
     refresh_count = st_autorefresh(interval=30_000, key="live_refresh")
     st.sidebar.write(f"🔄 Auto-refresh count: {refresh_count}")
@@ -113,7 +124,9 @@ if st.session_state.get('authentication_status'):
     # Firebase-Backed Watchlist
     username = st.session_state.get("username")
     default_watchlist = [
-        
+        "TATAMOTORS.NS", "IDFCFIRSTB.NS", "WIPRO.NS",
+        "NBCC.NS", "ZENSARTECH.NS", "EPL.NS",
+        "BERGEPAINT.NS", "RECLTD.NS", "AARON.NS"
     ]
     if "watchlist" not in st.session_state:
         st.session_state.watchlist = load_user_watchlist(username, default=default_watchlist)
@@ -142,6 +155,23 @@ if st.session_state.get('authentication_status'):
             save_user_watchlist(username, st.session_state.watchlist)
             st.warning(f"Removed {remove_symbol} from watchlist.")
 
+    # ---- Personal Telegram Settings ----
+    st.sidebar.subheader("🔔 Personal Telegram Alerts")
+    user_telegram_chat_id = load_user_telegram(username)
+
+    if user_telegram_chat_id:
+        st.sidebar.success(f"✅ Telegram connected: {user_telegram_chat_id}")
+    else:
+        st.sidebar.info("Set your Telegram Chat ID to receive personal alerts.")
+
+    new_chat_id = st.sidebar.text_input("Your Telegram Chat ID", value=user_telegram_chat_id or "")
+    if st.sidebar.button("Save Telegram Chat ID"):
+        if new_chat_id.strip():
+            save_user_telegram(username, new_chat_id.strip())
+            st.sidebar.success("Telegram Chat ID saved!")
+        else:
+            st.sidebar.error("Please enter a valid Chat ID.")
+
     st.sidebar.subheader("Analysis Options")
     symbol_input = st.sidebar.text_input("Stock Symbol for Home", "RELIANCE.NS")
     period = st.sidebar.selectbox("Select Period", ["1mo", "3mo", "6mo", "1y", "2y"])
@@ -156,23 +186,22 @@ if st.session_state.get('authentication_status'):
     enable_email_alert = st.sidebar.checkbox("Enable Email Alerts", value=False)
 
     telegram_token = st.secrets.get("telegram_token", "")
-    telegram_chat_id = st.secrets.get("telegram_chat_id", "")
     email_sender = st.secrets.get("email_sender", "")
     email_password = st.secrets.get("email_password", "")
     email_receiver = st.secrets.get("email_receiver", "")
 
     st.sidebar.subheader("📲 Test Telegram Alert")
     if st.sidebar.button("Send Test Telegram Alert"):
-        if telegram_token and telegram_chat_id:
+        if telegram_token and user_telegram_chat_id:
             try:
                 url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-                payload = {"chat_id": telegram_chat_id, "text": "✅ Telegram alert test successful!"}
+                payload = {"chat_id": user_telegram_chat_id, "text": "✅ Telegram alert test successful!"}
                 requests.post(url, data=payload)
                 st.sidebar.success("Test Telegram alert sent successfully!")
             except Exception as e:
                 st.sidebar.error(f"Failed to send test alert: {e}")
         else:
-            st.sidebar.warning("Please set Telegram credentials in Streamlit secrets.toml!")
+            st.sidebar.warning("Please set your Telegram Chat ID and bot token in secrets!")
 
     st.sidebar.subheader("Indicator Parameters")
     rsi_period = st.sidebar.number_input("RSI Period", min_value=5, max_value=50, value=14, step=1)
@@ -284,11 +313,13 @@ if st.session_state.get('authentication_status'):
                                 subject=f"{sig['signal']} Alert for {symbol}", body=alert_text,
                                 from_email=email_sender, password=email_password, to_email=email_receiver
                             )
-                        if telegram_token and telegram_chat_id:
+                        
+                        # Send to user's personal Telegram
+                        if telegram_token and user_telegram_chat_id:
                             send_telegram_alert(
                                 f"📊 v1.1 🚨 {sig['signal']} Alert for {symbol}\n⏳ Period: {period}, Interval: {interval}\n{alert_text}",
                                 telegram_token,
-                                telegram_chat_id
+                                user_telegram_chat_id
                             )
                     st.session_state.last_alert[symbol] = sig['signal']
                 else:
