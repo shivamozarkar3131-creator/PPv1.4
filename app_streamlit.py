@@ -113,9 +113,7 @@ if st.session_state.get('authentication_status'):
     # Firebase-Backed Watchlist
     username = st.session_state.get("username")
     default_watchlist = [
-        "TATAMOTORS.NS", "IDFCFIRSTB.NS", "WIPRO.NS",
-        "NBCC.NS", "ZENSARTECH.NS", "EPL.NS",
-        "BERGEPAINT.NS", "RECLTD.NS", "AARON.NS"
+        
     ]
     if "watchlist" not in st.session_state:
         st.session_state.watchlist = load_user_watchlist(username, default=default_watchlist)
