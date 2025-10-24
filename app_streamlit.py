@@ -168,6 +168,7 @@ if st.session_state.get('authentication_status'):
     if st.sidebar.button("Save Telegram Chat ID"):
         if new_chat_id.strip():
             save_user_telegram(username, new_chat_id.strip())
+            user_telegram_chat_id = new_chat_id.strip()  # Update immediately
             st.sidebar.success("Telegram Chat ID saved!")
         else:
             st.sidebar.error("Please enter a valid Chat ID.")
@@ -192,16 +193,25 @@ if st.session_state.get('authentication_status'):
 
     st.sidebar.subheader("📲 Test Telegram Alert")
     if st.sidebar.button("Send Test Telegram Alert"):
-        if telegram_token and user_telegram_chat_id:
+        # Reload user's telegram chat ID to ensure it's current
+        current_chat_id = load_user_telegram(username)
+        
+        if telegram_token and current_chat_id:
             try:
                 url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-                payload = {"chat_id": user_telegram_chat_id, "text": "✅ Telegram alert test successful!"}
-                requests.post(url, data=payload)
-                st.sidebar.success("Test Telegram alert sent successfully!")
+                payload = {"chat_id": current_chat_id, "text": "✅ Telegram alert test successful!"}
+                response = requests.post(url, data=payload)
+                if response.status_code == 200:
+                    st.sidebar.success("Test Telegram alert sent successfully!")
+                else:
+                    st.sidebar.error(f"Failed to send alert. Response: {response.text}")
             except Exception as e:
                 st.sidebar.error(f"Failed to send test alert: {e}")
         else:
-            st.sidebar.warning("Please set your Telegram Chat ID and bot token in secrets!")
+            if not telegram_token:
+                st.sidebar.warning("Telegram bot token not set in secrets!")
+            if not current_chat_id:
+                st.sidebar.warning("Please save your Telegram Chat ID first!")
 
     st.sidebar.subheader("Indicator Parameters")
     rsi_period = st.sidebar.number_input("RSI Period", min_value=5, max_value=50, value=14, step=1)
@@ -315,11 +325,12 @@ if st.session_state.get('authentication_status'):
                             )
                         
                         # Send to user's personal Telegram
-                        if telegram_token and user_telegram_chat_id:
+                        current_user_chat_id = load_user_telegram(username)
+                        if telegram_token and current_user_chat_id:
                             send_telegram_alert(
                                 f"📊 v1.1 🚨 {sig['signal']} Alert for {symbol}\n⏳ Period: {period}, Interval: {interval}\n{alert_text}",
                                 telegram_token,
-                                user_telegram_chat_id
+                                current_user_chat_id
                             )
                     st.session_state.last_alert[symbol] = sig['signal']
                 else:
