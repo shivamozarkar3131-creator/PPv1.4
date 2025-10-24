@@ -2,13 +2,18 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from sr_core import analyze, SRConfig
 import streamlit.components.v1 as components
+from sr_core import analyze, SRConfig
 from streamlit_autorefresh import st_autorefresh
 import requests
 import yaml
 from yaml.loader import SafeLoader
+import firebase_admin
+from firebase_admin import credentials, db
+import os
+import json
 
+# --------- Authentication ---------
 CONFIG_PATH = 'credentials.yaml'
 with open(CONFIG_PATH) as file:
     config = yaml.load(file, Loader=SafeLoader)
@@ -27,7 +32,40 @@ try:
 except Exception as e:
     st.error(e)
 
-# Show registration ONLY if not logged in
+# --------- Firebase Connection ---------
+def get_firebase_cred():
+    # Run locally? Use firebase-key.json file.
+    # On Streamlit Cloud, use secrets
+    if "firebase_key" in st.secrets:
+        # Convert TOML secret string to dict&file
+        import tempfile
+        import json as pyjson
+        key_path = None
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as tf:
+            tf.write(st.secrets["firebase_key"])
+            key_path = tf.name
+        return key_path
+    else:
+        return "firebase-key.json"
+
+FIREBASE_URL = st.secrets.get("firebase_url", "YOUR_FIREBASE_DB_URL_HERE")
+cred_path = get_firebase_cred()
+if not firebase_admin._apps:
+    cred = credentials.Certificate(cred_path)
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': FIREBASE_URL
+    })
+
+def load_user_watchlist(username, default=None):
+    ref = db.reference(f"watchlists/{username}")
+    data = ref.get()
+    return data if isinstance(data, list) and data else (default or [])
+
+def save_user_watchlist(username, watchlist):
+    ref = db.reference(f"watchlists/{username}")
+    ref.set(watchlist)
+
+# -------- Registration --------
 if not st.session_state.get('authentication_status'):
     try:
         email_of_registered_user, username_of_registered_user, name_of_registered_user = authenticator.register_user()
@@ -38,25 +76,29 @@ if not st.session_state.get('authentication_status'):
     except Exception as e:
         st.error(e)
 
+# ---- Main app ----
 if st.session_state.get('authentication_status'):
     authenticator.logout('Logout', 'sidebar')
     st.success(f"Welcome {st.session_state.get('name')}")
-    # ---------------- APP STARTS HERE IF LOGGED IN ----------------
 
     st.set_page_config(page_title="S/R with RSI, MACD & Volume", layout="wide")
-    st.title("📈 Signalv14")
+    st.title("📈 Support & Resistance + RSI & MACD + Volume Confirmation + Trading Signals")
 
     refresh_count = st_autorefresh(interval=30_000, key="live_refresh")
     st.sidebar.write(f"🔄 Auto-refresh count: {refresh_count}")
 
     tab = st.sidebar.radio("Select View", ["Home", "Watchlist"])
 
+    # Firebase-Backed Watchlist
+    username = st.session_state.get("username")
+    default_watchlist = [
+        "TATAMOTORS.NS", "IDFCFIRSTB.NS", "WIPRO.NS",
+        "NBCC.NS", "ZENSARTECH.NS", "EPL.NS",
+        "BERGEPAINT.NS", "RECLTD.NS", "AARON.NS"
+    ]
     if "watchlist" not in st.session_state:
-        st.session_state.watchlist = [
-            "TATAMOTORS.NS", "IDFCFIRSTB.NS", "WIPRO.NS",
-            "NBCC.NS", "ZENSARTECH.NS", "EPL.NS",
-            "BERGEPAINT.NS", "RECLTD.NS", "AARON.NS"
-        ]
+        # Load from Firebase on each login/init
+        st.session_state.watchlist = load_user_watchlist(username, default=default_watchlist)
 
     st.sidebar.subheader("Manage Watchlist")
     st.sidebar.write("Current Watchlist:")
@@ -65,15 +107,22 @@ if st.session_state.get('authentication_status'):
 
     new_symbol = st.sidebar.text_input("Add Symbol (e.g., HDFCBANK.NS)")
     if st.sidebar.button("Add Symbol"):
-        if new_symbol.strip() and new_symbol.upper() not in st.session_state.watchlist:
-            st.session_state.watchlist.append(new_symbol.upper())
-            st.success(f"Added {new_symbol.upper()} to watchlist")
+        new_symbol_clean = new_symbol.upper().strip()
+        if new_symbol_clean == "":
+            st.sidebar.error("Enter a symbol.")
+        elif new_symbol_clean in st.session_state.watchlist:
+            st.sidebar.warning("Symbol already added.")
+        else:
+            st.session_state.watchlist.append(new_symbol_clean)
+            save_user_watchlist(username, st.session_state.watchlist)
+            st.success(f"Added {new_symbol_clean} to your watchlist!")
 
     remove_symbol = st.sidebar.selectbox("Remove Symbol", [""] + st.session_state.watchlist)
     if st.sidebar.button("Remove Symbol"):
-        if remove_symbol in st.session_state.watchlist:
+        if remove_symbol and remove_symbol in st.session_state.watchlist:
             st.session_state.watchlist.remove(remove_symbol)
-            st.warning(f"Removed {remove_symbol} from watchlist")
+            save_user_watchlist(username, st.session_state.watchlist)
+            st.warning(f"Removed {remove_symbol} from watchlist.")
 
     st.sidebar.subheader("Analysis Options")
     symbol_input = st.sidebar.text_input("Stock Symbol for Home", "RELIANCE.NS")
@@ -176,7 +225,6 @@ if st.session_state.get('authentication_status'):
     def show_stock(symbol: str, hide_sr: bool = False):
         st.subheader(f"🔹 {symbol}")
         _cfg = SRConfig(distance=distance, tolerance=tolerance, min_touches=2)
-
         try:
             sr, df, signals = get_analysis(
                 symbol, period, interval, _cfg,
@@ -258,6 +306,7 @@ if st.session_state.get('authentication_status'):
         st.subheader("📢 Watchlist Live Alerts Only")
         for sym in st.session_state.watchlist:
             show_stock(sym, hide_sr=True)
+
 elif st.session_state.get('authentication_status') == False:
     st.error('Username/password is incorrect')
 elif st.session_state.get('authentication_status') is None:
