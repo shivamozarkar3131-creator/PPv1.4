@@ -12,18 +12,60 @@ import firebase_admin
 from firebase_admin import credentials, db
 import os
 
-# --------- Authentication ---------
-# Load base config from YAML (cookie settings, etc.)
+# --------- Firebase Connection ---------
+def get_firebase_cred():
+    import tempfile
+    import json as pyjson
+    key_path = None
+    if "firebase_key" in st.secrets:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as tf:
+            tf.write(pyjson.dumps(dict(st.secrets["firebase_key"])))
+            key_path = tf.name
+        return key_path
+    else:
+        return "firebase-key.json"
+
+FIREBASE_URL = st.secrets.firebase_key.firebase_url if "firebase_key" in st.secrets else "YOUR_FIREBASE_DB_URL_HERE"
+cred_path = get_firebase_cred()
+if not firebase_admin._apps:
+    cred = credentials.Certificate(cred_path)
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': FIREBASE_URL
+    })
+
+# Firebase functions for user credentials
+def load_all_users():
+    """Load all users from Firebase"""
+    ref = db.reference("credentials/usernames")
+    data = ref.get()
+    return data if data else {}
+
+def save_user_to_firebase(username, user_data):
+    """Save a single user to Firebase"""
+    ref = db.reference(f"credentials/usernames/{username}")
+    ref.set(user_data)
+
+# Firebase functions for watchlists
+def load_user_watchlist(username, default=None):
+    ref = db.reference(f"watchlists/{username}")
+    data = ref.get()
+    return data if isinstance(data, list) and data else (default or [])
+
+def save_user_watchlist(username, watchlist):
+    ref = db.reference(f"watchlists/{username}")
+    ref.set(watchlist)
+
+# --------- Load Config (Hybrid: YAML + Firebase) ---------
 CONFIG_PATH = 'credentials.yaml'
 with open(CONFIG_PATH) as file:
     config = yaml.load(file, Loader=SafeLoader)
 
-# Load users from Firebase (overrides YAML users)
+# Load users from Firebase (overrides YAML users for persistence)
 firebase_users = load_all_users()
 if firebase_users:
     config['credentials']['usernames'] = firebase_users
 
-
+# --------- Authentication ---------
 import streamlit_authenticator as stauth
 
 authenticator = stauth.Authenticate(
@@ -38,56 +80,18 @@ try:
 except Exception as e:
     st.error(e)
 
-# --------- Firebase Connection ---------
-def get_firebase_cred():
-    import tempfile
-    import json as pyjson
-    key_path = None
-    if "firebase_key" in st.secrets:
-        # st.secrets["firebase_key"] is a dict (not a string!)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as tf:
-            tf.write(pyjson.dumps(dict(st.secrets["firebase_key"])))
-            key_path = tf.name
-        return key_path
-    else:
-        return "firebase-key.json"
-
-# Use firebase_url from TOML (cloud) or set here (local)
-FIREBASE_URL = st.secrets.firebase_key.firebase_url if "firebase_key" in st.secrets else "YOUR_FIREBASE_DB_URL_HERE"
-cred_path = get_firebase_cred()
-if not firebase_admin._apps:
-    cred = credentials.Certificate(cred_path)
-    firebase_admin.initialize_app(cred, {
-        'databaseURL': FIREBASE_URL
-    })
-
-def load_user_watchlist(username, default=None):
-    ref = db.reference(f"watchlists/{username}")
-    data = ref.get()
-    return data if isinstance(data, list) and data else (default or [])
-
-def save_user_watchlist(username, watchlist):
-    ref = db.reference(f"watchlists/{username}")
-    ref.set(watchlist)
-
-def load_all_users():
-    """Load all users from Firebase"""
-    ref = db.reference("credentials/usernames")
-    data = ref.get()
-    return data if data else {}
-
-def save_user_to_firebase(username, user_data):
-    """Save a single user to Firebase"""
-    ref = db.reference(f"credentials/usernames/{username}")
-    ref.set(user_data)
-
-
 # -------- Registration --------
 if not st.session_state.get('authentication_status'):
     try:
         email_of_registered_user, username_of_registered_user, name_of_registered_user = authenticator.register_user()
         if email_of_registered_user:
             st.success('User registered successfully. You can now log in!')
+            
+            # Save to Firebase (persistent across restarts)
+            user_data = config['credentials']['usernames'][username_of_registered_user]
+            save_user_to_firebase(username_of_registered_user, user_data)
+            
+            # Optionally save to local YAML for dev/backup
             with open(CONFIG_PATH, 'w') as file:
                 yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
     except Exception as e:
@@ -109,10 +113,11 @@ if st.session_state.get('authentication_status'):
     # Firebase-Backed Watchlist
     username = st.session_state.get("username")
     default_watchlist = [
-        "TATAMOTORS.NS"
+        "TATAMOTORS.NS", "IDFCFIRSTB.NS", "WIPRO.NS",
+        "NBCC.NS", "ZENSARTECH.NS", "EPL.NS",
+        "BERGEPAINT.NS", "RECLTD.NS", "AARON.NS"
     ]
     if "watchlist" not in st.session_state:
-        # Load from Firebase on each login/init
         st.session_state.watchlist = load_user_watchlist(username, default=default_watchlist)
 
     st.sidebar.subheader("Manage Watchlist")
